@@ -40,7 +40,7 @@ var fileIncludeList = []string{"ts", "rs", "go", "java", "kt", "c", "cpp", "js",
 func main() {
 	fmt.Println("Starting the script")
 
-    name := os.Args[1]
+	name := os.Args[1]
 
 	files := []PendingFile{}
 	filesCount := map[string]int{}
@@ -68,8 +68,8 @@ func main() {
 			data := get(file.DownloadUrl)
 			fmt.Println(file.DownloadUrl)
 			ch <- CountPair{
-				LinesCount : countLines(string(data)),
-				Ext: file.Ext,
+				LinesCount: countLines(string(data)),
+				Ext:        file.Ext,
 			}
 		}(file)
 	}
@@ -82,7 +82,10 @@ func main() {
 	printMap(linesCount, "lines")
 }
 
-type Pair = struct {string; int}
+type Pair = struct {
+	string
+	int
+}
 
 func printMap(m map[string]int, metric string) {
 	total := 0
@@ -94,7 +97,7 @@ func printMap(m map[string]int, metric string) {
 	sort.Slice(slice, func(i, j int) bool {
 		return slice[i].int > slice[j].int
 	})
-	  
+
 	for _, pair := range slice {
 		k := pair.string
 		v := pair.int
@@ -166,7 +169,7 @@ func countRepo(url string, files *[]PendingFile) {
 		ext := tokenized[len(tokenized)-1]
 		if node.DownloadUrl != "" {
 			// file
-			if slices.Contains(fileIncludeList, ext) { 
+			if slices.Contains(fileIncludeList, ext) {
 				fmt.Println("File ", node.Name)
 				pending := PendingFile{DownloadUrl: node.DownloadUrl, Ext: ext}
 				*files = append(*files, pending)
