@@ -42,14 +42,16 @@ func main() {
 	name := os.Args[1]
 
 	files := []PendingFile{}
+	reposCount := map[string]int{}
 	filesCount := map[string]int{}
 	linesCount := map[string]int{}
 	repos := getRepos(name)
 
 	for _, repo := range repos {
 		fmt.Println("Repo ", repo.Name)
-		baseUrl := fmt.Sprintf("https://api.github.com/repos/%s/%s/contents", name, repo.Name)
-		countRepo(baseUrl, &files)
+		baseUrl := fmt.Sprintf("https://api.github.com/repos/%s/%s", name, repo.Name)
+		walkRepo(fmt.Sprintf("%s/contents", baseUrl), &files)
+		countRepo(fmt.Sprintf("%s/languages", baseUrl), reposCount)
 	}
 
 	for _, file := range files {
@@ -59,10 +61,27 @@ func main() {
 	CountAllLinesWg(linesCount, files)
 	// CountAllLinesCh(linesCount, files)
 
-	fmt.Println("\nFiles Count")
+	fmt.Println()
 	printMap(filesCount, "files")
-	fmt.Println("\nLines Count")
 	printMap(linesCount, "lines")
+	printMap(reposCount, "repos")
+}
+
+func countRepo(baseUrl string, reposCount map[string]int) {
+	body := get(baseUrl)
+	mapRes := map[string]int{}
+	err := json.Unmarshal(body, &mapRes)
+	if err != nil {
+		onError(err)
+	}
+	largestK, largestV := "", 0
+	for k, v := range mapRes {
+		if v > largestV {
+			largestK = k
+			largestV = v
+		}
+	}
+	reposCount[largestK] += 1
 }
 
 type Pair = struct {
@@ -83,9 +102,12 @@ func printMap(m map[string]int, metric string) {
 
 	for _, pair := range slice {
 		k := pair.string
+		if k == "" {
+			k = "<none>"
+		}
 		v := pair.int
 		percentage := int(float32(v) / float32(total) * 100)
-		fmt.Printf("%s \t %d %s \t %d%%\t", k, v, metric, percentage)
+		fmt.Printf("%12s %8d %s %5d%% \t", k, v, metric, percentage)
 		for i := 0; i < percentage; i++ {
 			fmt.Print("|")
 		}
@@ -137,7 +159,7 @@ func getRepos(name string) []Repo {
 	return repos
 }
 
-func countRepo(url string, files *[]PendingFile) {
+func walkRepo(url string, files *[]PendingFile) {
 	fmt.Println(url)
 	body := get(url)
 
@@ -161,7 +183,7 @@ func countRepo(url string, files *[]PendingFile) {
 			// dir
 			nextUrl := fmt.Sprintf("%s/%s", url, node.Name)
 			if !slices.Contains(dirExcludeList, node.Name) {
-				countRepo(nextUrl, files)
+				walkRepo(nextUrl, files)
 			}
 		}
 	}
