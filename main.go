@@ -8,7 +8,6 @@ import (
 	"os"
 	"sort"
 	"strings"
-	"sync"
 
 	"golang.org/x/exp/slices"
 )
@@ -38,8 +37,8 @@ var dirExcludeList = []string{".venv", "target"}
 var fileIncludeList = []string{"ts", "rs", "go", "java", "kt", "c", "cpp", "js", "cs", "py"}
 
 func main() {
-	fmt.Println("Starting the script")
 
+	fmt.Println("Starting the script")
 	name := os.Args[1]
 
 	files := []PendingFile{}
@@ -56,30 +55,36 @@ func main() {
 	for _, file := range files {
 		filesCount[file.Ext] += 1
 	}
+	
+	countAllLines(linesCount, files)
+
 	fmt.Println("\nFiles Count")
 	printMap(filesCount, "files")
+	fmt.Println("\nLines Count")
+	printMap(linesCount, "lines")
+}
 
+func countAllLines(linesCount map[string]int, files []PendingFile) {
 	fmt.Println("Begin download to count lines")
-	var wg sync.WaitGroup
-	var ch chan CountPair
+
+	ch := make(chan CountPair)
 	for _, file := range files {
-		wg.Add(1)
 		go func(file PendingFile) {
+			fmt.Println("Start ", file.DownloadUrl)
 			data := get(file.DownloadUrl)
-			fmt.Println(file.DownloadUrl)
+			fmt.Println("Finish ", file.DownloadUrl)
 			ch <- CountPair{
 				LinesCount: countLines(string(data)),
 				Ext:        file.Ext,
 			}
 		}(file)
 	}
-	wg.Wait()
 
-	for pair := range ch {
+	for i := 0; i < len(files); i++ {
+		pair := <-ch
+		fmt.Println("Channel", pair.Ext, pair.LinesCount)
 		linesCount[pair.Ext] += pair.LinesCount
 	}
-	fmt.Println("\nLines Count")
-	printMap(linesCount, "lines")
 }
 
 type Pair = struct {
