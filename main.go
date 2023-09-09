@@ -56,35 +56,13 @@ func main() {
 		filesCount[file.Ext] += 1
 	}
 	
-	countAllLines(linesCount, files)
+	CountAllLinesWg(linesCount, files)
+	// CountAllLinesCh(linesCount, files)
 
 	fmt.Println("\nFiles Count")
 	printMap(filesCount, "files")
 	fmt.Println("\nLines Count")
 	printMap(linesCount, "lines")
-}
-
-func countAllLines(linesCount map[string]int, files []PendingFile) {
-	fmt.Println("Begin download to count lines")
-
-	ch := make(chan CountPair)
-	for _, file := range files {
-		go func(file PendingFile) {
-			fmt.Println("Start ", file.DownloadUrl)
-			data := get(file.DownloadUrl)
-			fmt.Println("Finish ", file.DownloadUrl)
-			ch <- CountPair{
-				LinesCount: countLines(string(data)),
-				Ext:        file.Ext,
-			}
-		}(file)
-	}
-
-	for i := 0; i < len(files); i++ {
-		pair := <-ch
-		fmt.Println("Channel", pair.Ext, pair.LinesCount)
-		linesCount[pair.Ext] += pair.LinesCount
-	}
 }
 
 type Pair = struct {
