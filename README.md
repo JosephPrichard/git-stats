@@ -19,3 +19,6 @@ groupings.
 
 The `exclude` variable specifies directories to exclude. This is useful for dynamic languages where the
 artefacts of a project use the same extensions as the source.
+
+## Example
+![image](https://github.com/JosephPrichard/GithubStats/assets/58538077/a985bfe4-3a74-4c51-a480-f36bced1e189)

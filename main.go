@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"github.com/fatih/color"
 	"io"
 	"net/http"
 	"os"
@@ -63,11 +64,20 @@ func main() {
 		filesCount[file.Ext] += 1
 	}
 
-	linesCount := map[string]int{}
-	repoLCount := map[string]int{}
+	langLinesCount := map[string]int{}
+	repoLinesCount := map[string]int{}
+	groupedLinesCount := map[string]map[string]int{}
+
 	for _, file := range files {
-		linesCount[file.Ext] += file.LinesCount
-		repoLCount[file.RepoName] += file.LinesCount
+		langLinesCount[file.Ext] += file.LinesCount
+		repoLinesCount[file.RepoName] += file.LinesCount
+
+		groupLinesCount, ok := groupedLinesCount[file.RepoName]
+		if !ok {
+			groupLinesCount = map[string]int{}
+			groupedLinesCount[file.RepoName] = groupLinesCount
+		}
+		groupLinesCount[file.Ext] += file.LinesCount
 	}
 
 	t := time.Now()
@@ -75,9 +85,14 @@ func main() {
 
 	fmt.Println()
 	printMap(filesCount, "files")
-	printMap(linesCount, "lines")
+	printMap(langLinesCount, "lines")
 	printMap(reposCount, "repos")
-	printMap(repoLCount, "lines")
+	printMap(repoLinesCount, "lines")
+
+	for k, v := range groupedLinesCount {
+		color.Red("%22s\n", k)
+		printMap(v, "lines")
+	}
 
 	fmt.Printf("\nScript took %d ms\n", elapsed/time.Millisecond)
 }
@@ -305,9 +320,23 @@ func printMap(m map[string]int, metric string) {
 
 		percentage := int(float32(v) / float32(total) * 100)
 
-		fmt.Printf("%18s %8d %s %5d%% \t", k, v, metric, percentage)
+		_, err := color.New(color.FgCyan).Printf("%22s", k)
+		if err != nil {
+			onError(err)
+		}
+		_, err = color.New(color.FgMagenta).Printf("%8d %s", v, metric)
+		if err != nil {
+			onError(err)
+		}
+		_, err = color.New(color.FgGreen).Printf("%5d%% \t", percentage)
+		if err != nil {
+			onError(err)
+		}
 		for i := 0; i < percentage; i++ {
-			fmt.Print("|")
+			_, err := color.New(color.BgWhite).Printf(" ")
+			if err != nil {
+				onError(err)
+			}
 		}
 		fmt.Println()
 	}
