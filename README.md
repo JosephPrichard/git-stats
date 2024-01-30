@@ -15,10 +15,7 @@ Each goroutine modifies the response map directly, so they lock and unlock a mut
 The wait group waits until each goroutine signals it is done.
 `
 
-The original solution with both a wait group and a channel hung indefinitely because the wait group and channel deadlocked each other. The wait group done call ran after the channel send, but the channel recv ran after the wait group wait call.
-I learned that wait groups are better used when you want to wait on N tasks without getting a response, and channels are better if you need each task to send a response when finished.
-
-Execute the program with go run main.go. Configurations should be in a .env file in the same directory.
+Execute the program with `go run main.go`. Configurations should be in a `.env` file in the same directory.
 ```
 token=<your-github-token>
 name=JohnSmith

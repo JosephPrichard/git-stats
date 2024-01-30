@@ -14,36 +14,16 @@ import (
 	"golang.org/x/exp/slices"
 )
 
-type Repo struct {
-	Name string `json:"name"`
-}
-
-type Node struct {
-	Name        string `json:"name"`
-	DownloadUrl string `json:"download_url"`
-}
-
-type PendingFile struct {
-	Ext         string
-	DownloadUrl string
-	RepoName    string
-}
-
-type CountPair struct {
-	Ext        string
-	LinesCount int
-}
-
-type Config struct {
-	client      *http.Client
-	name        string
-	token       string
-	dirExclude  []string
-	fileInclude []string
-}
-
 //go:embed .env
 var env string
+
+type Config struct {
+	client     *http.Client
+	name       string
+	token      string
+	dirExc     []string
+	fileIncMap map[string]string
+}
 
 func main() {
 	fmt.Println("Starting the script")
@@ -52,38 +32,50 @@ func main() {
 	fmt.Printf("EnvMap: %v\n", envMap)
 
 	config := Config{
-		client:      &http.Client{},
-		name:        envMap["name"],
-		token:       envMap["token"],
-		dirExclude:  strings.Split(envMap["exclude"], " "),
-		fileInclude: strings.Split(envMap["include"], " "),
+		client:     &http.Client{},
+		name:       envMap["name"],
+		token:      envMap["token"],
+		dirExc:     strings.Split(envMap["exclude"], " "),
+		fileIncMap: toExtMap(envMap["include"]),
 	}
 
-	files := make([]PendingFile, 0)
+	files := make([]FileRecord, 0)
 	reposCount := map[string]int{}
 	filesCount := map[string]int{}
 	linesCount := map[string]int{}
-	repoLinesCount := map[string]int{}
+	repoLCount := map[string]int{}
 
 	repos := getRepos(&config)
+
 	for _, repo := range repos {
 		fmt.Println("Repo ", repo.Name)
 		baseUrl := fmt.Sprintf("https://api.github.com/repos/%s/%s", config.name, repo.Name)
-		walkRepo(fmt.Sprintf("%s/contents", baseUrl), repo.Name, &files, &config)
+
 		countRepo(fmt.Sprintf("%s/languages", baseUrl), reposCount, &config)
+		walkRepo(fmt.Sprintf("%s/contents", baseUrl), repo.Name, &files, &config)
 	}
 
 	for _, file := range files {
 		filesCount[file.Ext] += 1
 	}
 
-	countAllLinesWg(linesCount, repoLinesCount, files, &config)
+	countAllLinesWg(linesCount, repoLCount, files, &config)
 
 	fmt.Println()
 	printMap(filesCount, "files")
 	printMap(linesCount, "lines")
 	printMap(reposCount, "repos")
-	printMap(repoLinesCount, "lines")
+	printMap(repoLCount, "lines")
+}
+
+func toExtMap(includeStr string) map[string]string {
+	expMap := make(map[string]string)
+	for _, group := range strings.Split(includeStr, " ") {
+		for _, ext := range strings.Split(group, "/") {
+			expMap[ext] = group
+		}
+	}
+	return expMap
 }
 
 func getEnvVars(env string) map[string]string {
@@ -96,8 +88,12 @@ func getEnvVars(env string) map[string]string {
 	return envMap
 }
 
+type Repo struct {
+	Name string `json:"name"`
+}
+
 func countRepo(baseUrl string, reposCount map[string]int, config *Config) {
-	body := get(baseUrl, config)
+	body := getRequest(baseUrl, config)
 	mapRes := map[string]int{}
 	err := json.Unmarshal(body, &mapRes)
 	if err != nil {
@@ -113,12 +109,12 @@ func countRepo(baseUrl string, reposCount map[string]int, config *Config) {
 	reposCount[largestK] += 1
 }
 
-type Pair = struct {
-	string
-	int
-}
-
 func printMap(m map[string]int, metric string) {
+	type Pair = struct {
+		string
+		int
+	}
+
 	total := 0
 	slice := make([]Pair, 0)
 	for k, v := range m {
@@ -145,7 +141,7 @@ func printMap(m map[string]int, metric string) {
 	fmt.Println()
 }
 
-func get(url string, config *Config) []byte {
+func getRequest(url string, config *Config) []byte {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		onError(err)
@@ -187,7 +183,7 @@ func countLines(data string) int {
 
 func getRepos(config *Config) []Repo {
 	url := fmt.Sprintf("https://api.github.com/users/%s/repos", config.name)
-	body := get(url, config)
+	body := getRequest(url, config)
 	repos := make([]Repo, 0)
 	err := json.Unmarshal(body, &repos)
 	if err != nil {
@@ -197,9 +193,20 @@ func getRepos(config *Config) []Repo {
 	return repos
 }
 
-func walkRepo(url string, repoName string, files *[]PendingFile, config *Config) {
+type FileRecord struct {
+	Ext         string
+	DownloadUrl string
+	RepoName    string
+}
+
+func walkRepo(url string, repoName string, files *[]FileRecord, config *Config) {
+	type Node struct {
+		Name        string `json:"name"`
+		DownloadUrl string `json:"download_url"`
+	}
+
 	fmt.Println(url)
-	body := get(url, config)
+	body := getRequest(url, config)
 
 	nodes := make([]Node, 0)
 	err := json.Unmarshal(body, &nodes)
@@ -212,15 +219,16 @@ func walkRepo(url string, repoName string, files *[]PendingFile, config *Config)
 		ext := tokenized[len(tokenized)-1]
 		if node.DownloadUrl != "" {
 			// file
-			if slices.Contains(config.fileInclude, ext) {
+			group, ok := config.fileIncMap[ext]
+			if ok {
 				fmt.Println("File ", node.Name)
-				pending := PendingFile{DownloadUrl: node.DownloadUrl, Ext: ext, RepoName: repoName}
+				pending := FileRecord{DownloadUrl: node.DownloadUrl, Ext: group, RepoName: repoName}
 				*files = append(*files, pending)
 			}
 		} else {
 			// dir
 			nextUrl := fmt.Sprintf("%s/%s", url, node.Name)
-			if !slices.Contains(config.dirExclude, node.Name) {
+			if !slices.Contains(config.dirExc, node.Name) {
 				walkRepo(nextUrl, repoName, files, config)
 			}
 		}
@@ -228,14 +236,19 @@ func walkRepo(url string, repoName string, files *[]PendingFile, config *Config)
 }
 
 // deprecated solution with channels
-func countAllLinesCh(linesCount map[string]int, files []PendingFile, config *Config) {
+func countAllLinesCh(linesCount map[string]int, files []FileRecord, config *Config) {
+	type CountPair struct {
+		Ext        string
+		LinesCount int
+	}
+
 	fmt.Println("Begin download to count lines")
 
 	ch := make(chan CountPair)
 	for _, file := range files {
-		go func(file PendingFile) {
+		go func(file FileRecord) {
 			fmt.Println("Start ", file.DownloadUrl)
-			data := get(file.DownloadUrl, config)
+			data := getRequest(file.DownloadUrl, config)
 			fmt.Println("Finish ", file.DownloadUrl)
 
 			count := countLines(string(data))
@@ -250,18 +263,18 @@ func countAllLinesCh(linesCount map[string]int, files []PendingFile, config *Con
 	}
 }
 
-func countAllLinesWg(linesCount map[string]int, repoLineCount map[string]int, files []PendingFile, config *Config) {
+func countAllLinesWg(linesCount map[string]int, repoLineCount map[string]int, files []FileRecord, config *Config) {
 	fmt.Println("Begin download to count lines")
 
 	var wg sync.WaitGroup
 	var m sync.Mutex
 	for _, file := range files {
 		wg.Add(1)
-		go func(file PendingFile) {
+		go func(file FileRecord) {
 			defer wg.Done()
 
 			fmt.Println("Start ", file.DownloadUrl)
-			data := get(file.DownloadUrl, config)
+			data := getRequest(file.DownloadUrl, config)
 			fmt.Println("Finish ", file.DownloadUrl)
 
 			m.Lock()
