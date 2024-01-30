@@ -12,6 +12,7 @@ name=JohnSmith
 include=ts go rust cpp/hpp
 exclude=cmake-build-debug target
 ```
+The `token` requires "repo" privileges to run the script. Create a token at https://github.com/settings/tokens
 
 The `include` variable specifies a space separated list of file extensions to include. You can `group`
 extensions into one using slashes like so `cpp/hpp`. In that case, `cpp` and `hpp` files are added to the same metric
