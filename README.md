@@ -19,7 +19,7 @@ Sample `config.json` file:
 The `token` requires "repo" privileges to run the script. Create a token at https://github.com/settings/tokens
 
 The `include` variable specifies a space separated list of file extensions to include. You can `group`
-extensions into one using slashes like so `cpp/hpp`. In that case, `cpp` and `hpp` files are added to the same metric
+extensions into one using an array instead of a string like so `["cpp", "hpp"]`. In that case, `cpp` and `hpp` files are added to the same metric
 groupings. 
 
 The `exclude` variable specifies directories to exclude. This is useful for dynamic languages where the
