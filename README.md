@@ -1,17 +1,21 @@
-# GithubStats
+# Github Stats
 A script to get repo metric from a github account such as lines of code or files per language.
 
 Uses HTTP package and wait groups from Go to download zip archives in parallel for the lines of code metric.
 
-Execute the program with `go run main.go`. Configurations should be in a `.env` file in the same directory.
+Execute the program with `go run main.go`. Configurations should be in a `config.json` file in the same directory.
 
-Sample `.env` file:
+Sample `config.json` file:
 ```
-token=<your-github-token>
-name=JohnSmith
-include=ts go rust cpp/hpp
-exclude=cmake-build-debug target
+{
+    "token": "<your-github-token>",
+    "users": ["username"]
+    "repos: ["user/repo"]
+    "include": ["ts", "go", "rust", ["cpp", "hpp"]]
+    "exclude": ["build", "target"]
+}
 ```
+
 The `token` requires "repo" privileges to run the script. Create a token at https://github.com/settings/tokens
 
 The `include` variable specifies a space separated list of file extensions to include. You can `group`
