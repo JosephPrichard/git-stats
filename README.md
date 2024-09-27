@@ -11,8 +11,8 @@ Sample `config.json` file:
     "token": "<your-github-token>",
     "users": ["username"]
     "repos: ["user/repo"]
-    "include": ["ts", "go", "rust", ["cpp", "hpp"]]
-    "exclude": ["build", "target"]
+    "includeExts": ["ts", "go", "rust", ["cpp", "hpp"]]
+    "excludeDirs": ["build", "target"]
 }
 ```
 

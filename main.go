@@ -21,20 +21,20 @@ import (
 var jsonConfig []byte
 
 type ParsedConfig struct {
-	Token   string        `json:"token"`
-	Users   []string      `json:"users"`
-	Repos   []string      `json:"repos"`
-	Include []interface{} `json:"include"`
-	Exclude []string      `json:"exclude"`
+	Token       string        `json:"token"`
+	Users       []string      `json:"users"`
+	Repos       []string      `json:"repos"`
+	IncludeExts []interface{} `json:"includeExts"`
+	ExcludeDirs []string      `json:"excludeDirs"`
 }
 
 type Config struct {
-	client     *http.Client
-	token      string
-	usernames  []string
-	reponames  []string
-	includeMap map[string]string
-	excludeMap map[string]struct{}
+	client        *http.Client
+	token         string
+	usernames     []string
+	reponames     []string
+	includeExtMap map[string]string
+	excludeExtMap map[string]struct{}
 }
 
 func main() {
@@ -79,21 +79,21 @@ func parseConfig() Config {
 	}
 
 	config := Config{
-		token:      parsedConfig.Token,
-		usernames:  parsedConfig.Users,
-		reponames:  parsedConfig.Repos,
-		excludeMap: map[string]struct{}{},
-		includeMap: map[string]string{},
+		token:         parsedConfig.Token,
+		usernames:     parsedConfig.Users,
+		reponames:     parsedConfig.Repos,
+		excludeExtMap: map[string]struct{}{},
+		includeExtMap: map[string]string{},
 	}
 
-	for _, dir := range parsedConfig.Exclude {
-		config.excludeMap[dir] = struct{}{}
+	for _, dir := range parsedConfig.ExcludeDirs {
+		config.excludeExtMap[dir] = struct{}{}
 	}
 
-	for _, group := range parsedConfig.Include {
+	for _, group := range parsedConfig.IncludeExts {
 		switch x := group.(type) {
 		case string:
-			config.includeMap[x] = x
+			config.includeExtMap[x] = x
 		case []string:
 			var groupSb strings.Builder
 			for i := 0; i < len(x); i++ {
@@ -103,7 +103,7 @@ func parseConfig() Config {
 			groupSb.WriteString(x[len(x)-1])
 
 			for _, elem := range x {
-				config.includeMap[elem] = groupSb.String()
+				config.includeExtMap[elem] = groupSb.String()
 			}
 		}
 	}
@@ -210,12 +210,19 @@ type Repo struct {
 func getRepos(config Config) []Repo {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
+	ch := make(chan struct{}, 10)
+
 	repos := make([]Repo, 0)
 
 	for _, user := range config.usernames {
 		wg.Add(1)
 		go func(user string) {
 			defer wg.Done()
+
+			ch <- struct{}{}
+			defer func() {
+				<-ch
+			}()
 
 			fmt.Printf("Getting repos for user %s\n", user)
 			url := fmt.Sprintf("https://api.github.com/users/%s/repos", user)
@@ -241,6 +248,7 @@ func getRepos(config Config) []Repo {
 func countRepos(repos []Repo, reposCount map[string]int, config Config) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
+	ch := make(chan struct{}, 10)
 
 	for _, repo := range repos {
 		wg.Add(1)
@@ -248,6 +256,12 @@ func countRepos(repos []Repo, reposCount map[string]int, config Config) {
 
 		go func(repo Repo) {
 			defer wg.Done()
+
+			ch <- struct{}{}
+			defer func() {
+				<-ch
+			}()
+
 			repoKey := findGreatestLangCount(repo, config)
 
 			mu.Lock()
@@ -290,6 +304,7 @@ type FileRecord struct {
 func downloadRepos(repos []Repo, files *[]FileRecord, config Config) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
+	ch := make(chan struct{}, 10)
 
 	for _, repo := range repos {
 		wg.Add(1)
@@ -298,12 +313,16 @@ func downloadRepos(repos []Repo, files *[]FileRecord, config Config) {
 		go func(repo Repo) {
 			defer wg.Done()
 
+			ch <- struct{}{}
+			defer func() {
+				<-ch
+			}()
+
 			onFile := func(fr FileRecord) {
 				mu.Lock()
 				defer mu.Unlock()
 				*files = append(*files, fr)
 			}
-
 			downloadRepo(repo, onFile, config)
 		}(repo)
 	}
@@ -325,19 +344,29 @@ func downloadRepo(repo Repo, onFile func(fr FileRecord), config Config) {
 	for _, zipFile := range archive.File {
 		buf := readZipFile(zipFile)
 
+		pathTokens := strings.Split(zipFile.Name, "/")
+
 		// get the extension from the file name
-		pathTokens := strings.Split(zipFile.Name, ".")
-		if len(pathTokens) < 2 {
-			fmt.Printf("Needs to have at least 1 path token %s\n", err.Error())
-			os.Exit(1)
+		lastTok := pathTokens[len(pathTokens)-1] // last element is the file extension
+		pathTokens = pathTokens[0 : len(pathTokens)-1]
+		lastTokTokens := strings.Split(lastTok, ".")
+
+		var ext string
+		if len(lastTokTokens) < 1 {
+			ext = lastTok
+		} else {
+			ext = lastTokTokens[len(lastTokTokens)-1]
 		}
-		ext := pathTokens[len(pathTokens)-1]
-		pathTokens = strings.Split(pathTokens[1], "/") // the second element after the first period will be the path
+
+		// files without extensions are always excluded
+		if ext == "" {
+			continue
+		}
 
 		// skip if any part of the path is contained within the exclude map
 		stop := false
 		for _, segment := range pathTokens {
-			_, exists := config.excludeMap[segment]
+			_, exists := config.excludeExtMap[segment]
 			if exists {
 				stop = true
 				break
@@ -348,7 +377,7 @@ func downloadRepo(repo Repo, onFile func(fr FileRecord), config Config) {
 		}
 
 		// check if the extension is a grouping type we want to track
-		group, ok := config.includeMap[ext]
+		group, ok := config.includeExtMap[ext]
 		if ok {
 			zfLines := countLines(string(buf))
 			onFile(FileRecord{
