@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/fatih/color"
 )
@@ -155,9 +156,9 @@ func appendExtraRepos(repos *[]Repo, repoNames []string) {
 	}
 }
 
-func createFileRepoTables(repos []Repo, config Config) ([]FileRecord, map[string]int) {
+func createFileRepoTables(repos []Repo, config Config) ([]FileRecord, map[string]int64) {
 	files := make([]FileRecord, 0)
-	reposCount := map[string]int{}
+	reposCount := map[string]int64{}
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -174,18 +175,18 @@ func createFileRepoTables(repos []Repo, config Config) ([]FileRecord, map[string
 	return files, reposCount
 }
 
-func createFilesCountTable(files []FileRecord) map[string]int {
-	filesCount := map[string]int{}
+func createFilesCountTable(files []FileRecord) map[string]int64 {
+	filesCount := map[string]int64{}
 	for _, file := range files {
 		filesCount[file.Ext] += 1
 	}
 	return filesCount
 }
 
-func createStatTables(files []FileRecord) (map[string]int, map[string]int, map[string]map[string]int) {
-	langLinesCount := map[string]int{}
-	repoLinesCount := map[string]int{}
-	groupedLinesCount := map[string]map[string]int{}
+func createStatTables(files []FileRecord) (map[string]int64, map[string]int64, map[string]map[string]int64) {
+	langLinesCount := map[string]int64{}
+	repoLinesCount := map[string]int64{}
+	groupedLinesCount := map[string]map[string]int64{}
 
 	for _, file := range files {
 		langLinesCount[file.Ext] += file.LinesCount
@@ -193,7 +194,7 @@ func createStatTables(files []FileRecord) (map[string]int, map[string]int, map[s
 
 		groupLinesCount, ok := groupedLinesCount[file.RepoName]
 		if !ok {
-			groupLinesCount = map[string]int{}
+			groupLinesCount = map[string]int64{}
 			groupedLinesCount[file.RepoName] = groupLinesCount
 		}
 		groupLinesCount[file.Ext] += file.LinesCount
@@ -245,7 +246,7 @@ func getRepos(config Config) []Repo {
 	return repos
 }
 
-func countRepos(repos []Repo, reposCount map[string]int, config Config) {
+func countRepos(repos []Repo, reposCount map[string]int64, config Config) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	ch := make(chan struct{}, 10)
@@ -298,7 +299,7 @@ func findGreatestLangCount(repo Repo, config Config) string {
 type FileRecord struct {
 	Ext        string
 	RepoName   string
-	LinesCount int
+	LinesCount int64
 }
 
 func downloadRepos(repos []Repo, files *[]FileRecord, config Config) {
@@ -404,32 +405,47 @@ func readZipFile(zf *zip.File) []byte {
 	return buf
 }
 
-func countLines(data string) int {
-	count := 0
-	for _, line := range strings.Split(data, "\n") {
-		if line != "" && line != "\r" {
-			count += 1
+func countLines(data string) int64 {
+	var lineCount int64
+	var lineLen int64
+
+	for _, ch := range data {
+		if ch == '\r' {
+			continue
+		}
+		if ch == '\n' {
+			if lineLen > 0 {
+				lineCount++
+			}
+			lineLen = 0
+		}
+		if !unicode.IsSpace(ch) {
+			lineLen++
 		}
 	}
-	return count
+	if lineLen > 0 {
+		lineCount++
+	}
+
+	return lineCount
 }
 
-func printTable(m map[string]int, metric string) {
+func printTable(m map[string]int64, metric string) {
 	type Pair = struct {
 		string
-		int
+		int64
 	}
 
 	pairs := make([]Pair, 0)
 
-	total := 0
+	var total int64
 	for k, v := range m {
 		total += v
 		pairs = append(pairs, Pair{k, v})
 	}
 
 	sort.Slice(pairs, func(i, j int) bool {
-		return pairs[i].int > pairs[j].int
+		return pairs[i].int64 > pairs[j].int64
 	})
 
 	for _, pair := range pairs {
@@ -437,7 +453,7 @@ func printTable(m map[string]int, metric string) {
 		if k == "" {
 			k = "<none>"
 		}
-		v := pair.int
+		v := pair.int64
 
 		percentage := int(float32(v) / float32(total) * 100)
 
