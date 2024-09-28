@@ -449,30 +449,32 @@ func printTable(m map[string]int64, metric string) {
 	})
 
 	for _, pair := range pairs {
-		k := pair.string
-		if k == "" {
-			k = "<none>"
+		key := pair.string
+		if key == "" {
+			key = "<none>"
 		}
-		v := pair.int64
+		val := pair.int64
 
-		percentage := int(float32(v) / float32(total) * 100)
+		percentage := float64(val) / float64(total) * 100
 
-		_, err := color.New(color.FgCyan).Printf("%22s", k)
+		_, err := color.New(color.FgCyan).Printf("%22s", key)
 		if err != nil {
 			fmt.Printf("%s\n", err.Error())
 			os.Exit(1)
 		}
-		_, err = color.New(color.FgMagenta).Printf("%8d %s", v, metric)
+		_, err = color.New(color.FgMagenta).Printf("%8d %s", val, metric)
 		if err != nil {
 			fmt.Printf("%s\n", err.Error())
 			os.Exit(1)
 		}
-		_, err = color.New(color.FgGreen).Printf("%5d%% \t", percentage)
+
+		percentStr := fmt.Sprintf("%.2f", percentage)
+		_, err = color.New(color.FgGreen).Printf("%8s%% \t", percentStr)
 		if err != nil {
 			fmt.Printf("%s\n", err.Error())
 			os.Exit(1)
 		}
-		for i := 0; i < percentage; i++ {
+		for i := 0; i < int(percentage); i++ {
 			_, err := color.New(color.BgWhite).Printf(" ")
 			if err != nil {
 				fmt.Printf("%s\n", err.Error())
