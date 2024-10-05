@@ -51,19 +51,19 @@ func main() {
 	appendExtraRepos(&repos, config.reponames)
 
 	files, reposCount := createFileRepoTables(repos, config)
-	filesCount := createFilesCountTable(files)
-	langLinesCount, repoLinesCount, groupedLinesCount := createStatTables(files)
+	tables := createStatTables(files)
 
 	t := time.Now()
 	elapsed := t.Sub(start)
 
 	fmt.Println()
-	printTable(filesCount, "files")
-	printTable(langLinesCount, "lines")
+	printTable(tables.filesCount, "files")
+	printTable(tables.langLinesCount, "lines")
+	printTable(tables.linesPerFileAvg, "lines/file")
 	printTable(reposCount, "repos")
-	printTable(repoLinesCount, "lines")
+	printTable(tables.repoLinesCount, "lines")
 
-	for k, v := range groupedLinesCount {
+	for k, v := range tables.groupedLinesCount {
 		color.Red("%22s\n", k)
 		printTable(v, "lines")
 	}
@@ -175,32 +175,46 @@ func createFileRepoTables(repos []Repo, config Config) ([]FileRecord, map[string
 	return files, reposCount
 }
 
-func createFilesCountTable(files []FileRecord) map[string]int64 {
-	filesCount := map[string]int64{}
-	for _, file := range files {
-		filesCount[file.Ext] += 1
-	}
-	return filesCount
+type StatTables struct {
+	filesCount        map[string]int64
+	langLinesCount    map[string]int64
+	linesPerFileAvg   map[string]int64
+	repoLinesCount    map[string]int64
+	groupedLinesCount map[string]map[string]int64
 }
 
-func createStatTables(files []FileRecord) (map[string]int64, map[string]int64, map[string]map[string]int64) {
-	langLinesCount := map[string]int64{}
-	repoLinesCount := map[string]int64{}
-	groupedLinesCount := map[string]map[string]int64{}
+func createStatTables(files []FileRecord) StatTables {
+	tables := StatTables{
+		filesCount:        map[string]int64{},
+		langLinesCount:    map[string]int64{},
+		linesPerFileAvg:   map[string]int64{},
+		repoLinesCount:    map[string]int64{},
+		groupedLinesCount: map[string]map[string]int64{},
+	}
 
 	for _, file := range files {
-		langLinesCount[file.Ext] += file.LinesCount
-		repoLinesCount[file.RepoName] += file.LinesCount
+		tables.filesCount[file.Ext] += 1
+	}
 
-		groupLinesCount, ok := groupedLinesCount[file.RepoName]
+	for _, file := range files {
+		tables.langLinesCount[file.Ext] += file.LinesCount
+		tables.repoLinesCount[file.RepoName] += file.LinesCount
+
+		groupLinesCount, ok := tables.groupedLinesCount[file.RepoName]
 		if !ok {
 			groupLinesCount = map[string]int64{}
-			groupedLinesCount[file.RepoName] = groupLinesCount
+			tables.groupedLinesCount[file.RepoName] = groupLinesCount
 		}
 		groupLinesCount[file.Ext] += file.LinesCount
 	}
 
-	return langLinesCount, repoLinesCount, groupedLinesCount
+	for _, file := range files {
+		fileCount := tables.filesCount[file.Ext]
+		lineCount := tables.langLinesCount[file.Ext]
+		tables.linesPerFileAvg[file.Ext] = lineCount / fileCount
+	}
+
+	return tables
 }
 
 type Repo struct {
