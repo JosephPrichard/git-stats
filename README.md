@@ -8,10 +8,9 @@ Execute the program with `go run main.go`. Configurations should be in a `config
 Sample `config.json` file:
 ```
 {
-    "token": "<your-github-token>",
-    "users": ["username"]
-    "repos: ["user/repo"]
-    "includeExts": ["ts", "go", "rust", ["cpp", "hpp"]]
+    "token": "<token>",
+    "users": ["JosephPrichard"],
+    "includeExts": [["js", "ts", "tsx", "svelte", "jsx"], "go", "rust", ["cpp", "hpp"], "java", ["c", "h"], "cs", "ml", "py"],
     "excludeDirs": ["build", "target"]
 }
 ```
