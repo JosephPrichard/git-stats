@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"sort"
@@ -39,12 +40,10 @@ type Config struct {
 }
 
 func main() {
-	fmt.Println("Starting the script")
+	log.Print("starting the script")
 	start := time.Now()
 
 	var config = parseConfig()
-	fmt.Printf("Config: %v\n", config)
-
 	config.client = &http.Client{}
 
 	repos := getRepos(config)
@@ -56,7 +55,7 @@ func main() {
 	t := time.Now()
 	elapsed := t.Sub(start)
 
-	fmt.Println()
+	log.Print()
 	printTable(tables.filesCount, "files")
 	printTable(tables.langLinesCount, "lines")
 	printTable(tables.linesPerFileAvg, "lines/file")
@@ -75,8 +74,7 @@ func parseConfig() Config {
 	var parsedConfig ParsedConfig
 	err := json.Unmarshal(jsonConfig, &parsedConfig)
 	if err != nil {
-		fmt.Printf("%s\n", err.Error())
-		os.Exit(1)
+		log.Fatalf("%v", err)
 	}
 
 	config := Config{
@@ -92,22 +90,37 @@ func parseConfig() Config {
 	}
 
 	for _, group := range parsedConfig.IncludeExts {
-		switch x := group.(type) {
+		switch gr := group.(type) {
 		case string:
-			config.includeExtMap[x] = x
-		case []string:
-			var groupSb strings.Builder
-			for i := 0; i < len(x); i++ {
-				groupSb.WriteString(x[i])
-				groupSb.WriteString("/")
+			config.includeExtMap[gr] = gr
+		case []any:
+			// a group could technically contain other elemenents besides strings - we only allow for a string array
+			var strGr []string
+			for _, e := range gr {
+				str, ok := e.(string)
+				if !ok {
+					log.Fatalf("group array must be an array of strings, got: %+v", gr)
+				}
+				strGr = append(strGr, str)
 			}
-			groupSb.WriteString(x[len(x)-1])
 
-			for _, elem := range x {
-				config.includeExtMap[elem] = groupSb.String()
+			// a string containing the display text for this group (which all exts share)
+			var displaySb strings.Builder
+			for i := range len(gr) - 1 {
+				displaySb.WriteString(strGr[i])
+				displaySb.WriteString("/")
 			}
+			displaySb.WriteString(strGr[len(strGr)-1])
+
+			for _, ext := range strGr {
+				config.includeExtMap[ext] = displaySb.String()
+			}
+		default:
+			log.Fatalf("groups array must only contain strings or string arrays, got: %+v", gr)
 		}
 	}
+
+	fmt.Printf("\n\nExecuting with config: %+v\n\n", config)
 
 	return config
 }
@@ -115,22 +128,19 @@ func parseConfig() Config {
 func getRequest(url string, config Config) []byte {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		fmt.Printf("%s\n", err.Error())
-		os.Exit(1)
+		log.Fatalf("%v", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+config.token)
 
 	res, err := config.client.Do(req)
 	if err != nil {
-		fmt.Printf("%s\n", err.Error())
-		os.Exit(1)
+		log.Fatalf("%v", err)
 	}
 	defer res.Body.Close()
 
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		fmt.Printf("%s\n", err.Error())
-		os.Exit(1)
+		log.Fatalf("%v", err)
 	}
 
 	if res.StatusCode != 200 {
@@ -295,8 +305,7 @@ func findGreatestLangCount(repo Repo, config Config) string {
 	mapRes := map[string]int{}
 	err := json.Unmarshal(body, &mapRes)
 	if err != nil {
-		fmt.Printf("%s\n", err.Error())
-		os.Exit(1)
+		log.Fatalf("%v", err)
 	}
 
 	largestKey, largestValue := "", 0
@@ -329,16 +338,15 @@ func downloadRepos(repos []Repo, files *[]FileRecord, config Config) {
 			defer wg.Done()
 
 			ch <- struct{}{}
-			defer func() {
-				<-ch
-			}()
 
 			onFile := func(fr FileRecord) {
 				mu.Lock()
-				defer mu.Unlock()
 				*files = append(*files, fr)
+				mu.Unlock()
 			}
 			downloadRepo(repo, onFile, config)
+
+			<-ch
 		}(repo)
 	}
 
@@ -352,8 +360,7 @@ func downloadRepo(repo Repo, onFile func(fr FileRecord), config Config) {
 	r := bytes.NewReader(data)
 	archive, err := zip.NewReader(r, int64(len(data)))
 	if err != nil {
-		fmt.Printf("%s\n", err.Error())
-		os.Exit(1)
+		log.Fatalf("%v", err)
 	}
 
 	for _, zipFile := range archive.File {
@@ -408,14 +415,12 @@ func downloadRepo(repo Repo, onFile func(fr FileRecord), config Config) {
 func readZipFile(zf *zip.File) []byte {
 	f, err := zf.Open()
 	if err != nil {
-		fmt.Printf("%s\n", err.Error())
-		os.Exit(1)
+		log.Fatalf("%v", err)
 	}
 	defer f.Close()
 	buf, err := io.ReadAll(f)
 	if err != nil {
-		fmt.Printf("%s\n", err.Error())
-		os.Exit(1)
+		log.Fatalf("%v", err)
 	}
 	return buf
 }
@@ -467,6 +472,8 @@ func printTable(m map[string]int64, metric string) {
 		return pairs[i].right > pairs[j].right
 	})
 
+	var sb strings.Builder
+
 	for _, pair := range pairs {
 		key := pair.left
 		if key == "" {
@@ -476,31 +483,29 @@ func printTable(m map[string]int64, metric string) {
 
 		percentage := float64(val) / float64(total) * 100
 
-		_, err := color.New(color.FgCyan).Printf("%*s", maxKeyLen, key)
+		_, err := color.New(color.FgCyan).Fprintf(&sb, "%*s", maxKeyLen, key)
 		if err != nil {
-			fmt.Printf("%s\n", err.Error())
-			os.Exit(1)
+			log.Fatalf("%v", err)
 		}
-		_, err = color.New(color.FgMagenta).Printf("%10d %s", val, metric)
+		_, err = color.New(color.FgMagenta).Fprintf(&sb, "%10d %s", val, metric)
 		if err != nil {
-			fmt.Printf("%s\n", err.Error())
-			os.Exit(1)
+			log.Fatalf("%v", err)
 		}
 
 		percentStr := fmt.Sprintf("%.2f", percentage)
-		_, err = color.New(color.FgGreen).Printf("%10s%% \t", percentStr)
+		_, err = color.New(color.FgGreen).Fprintf(&sb, "%10s%% \t", percentStr)
 		if err != nil {
-			fmt.Printf("%s\n", err.Error())
-			os.Exit(1)
+			log.Fatalf("%v", err)
 		}
 		for i := 0; i < int(percentage); i++ {
-			_, err := color.New(color.BgWhite).Printf(" ")
+			_, err := color.New(color.BgWhite).Fprintf(&sb, " ")
 			if err != nil {
-				fmt.Printf("%s\n", err.Error())
-				os.Exit(1)
+				log.Fatalf("%v", err)
 			}
 		}
-		fmt.Println()
+		fmt.Fprintln(&sb)
 	}
-	fmt.Println()
+	fmt.Fprintln(&sb)
+
+	fmt.Printf("%s", sb.String())
 }
